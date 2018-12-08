@@ -1,6 +1,19 @@
 package pipeline
 
-import "sort"
+import (
+	"sort"
+	"io"
+	"encoding/binary"
+	"math/rand"
+	"time"
+	"fmt"
+)
+
+var startTime time.Time
+
+func Init() {
+	startTime = time.Now()
+}
 
 func ArraySource(a ...int) <-chan int {
 	out := make(chan int)
@@ -15,16 +28,19 @@ func ArraySource(a ...int) <-chan int {
 }
 
 func InMemSort(in <-chan int) <-chan int {
-	out := make(chan int)
+	// add buffer
+	out := make(chan int, 1024)
 	go func() {
 		// Read
 		a := []int{}
 		for v := range in {
 			a = append(a, v)
 		}
+		fmt.Println("Read done:", time.Now().Sub(startTime))
 
 		// Sort
 		sort.Ints(a)
+		fmt.Println("Sort done:", time.Now().Sub(startTime))
 
 		// Print
 		for _, v := range a {
@@ -37,7 +53,8 @@ func InMemSort(in <-chan int) <-chan int {
 }
 
 func Merge(in1, in2 <-chan int) <-chan int {
-	out := make(chan int)
+	// add buffer
+	out := make(chan int, 1024)
 	go func() {
 		v1, ok1 := <- in1
 		v2, ok2 := <- in2
@@ -51,6 +68,59 @@ func Merge(in1, in2 <-chan int) <-chan int {
 			}
 		}
 		close(out)
+		fmt.Println("Merge done:", time.Now().Sub(startTime))
 	}()
 	return out
+}
+
+func ReaderSource(reader io.Reader, chunkSize int) <-chan int {
+	// add buffer
+	out := make(chan int, 1024)
+	go func() {
+		buffer := make([]byte, 8)
+		bytesRead := 0
+		for {
+			n, err := reader.Read(buffer)
+			bytesRead += n
+			if n > 0 {
+				v := int(binary.BigEndian.Uint64(buffer))
+				out <- v
+			}
+			if err != nil || (chunkSize != -1 && bytesRead >= chunkSize) {
+				break
+			}
+		}
+		close(out)
+	}()
+	return out
+}
+
+func WriteSink(writer io.Writer, in <-chan int) {
+	for v := range in {
+		buffer := make([]byte, 8)
+		binary.BigEndian.PutUint64(buffer, uint64(v))
+		writer.Write(buffer)
+	}
+}
+
+func RandomSource(count int) <-chan int {
+	out := make(chan int)
+	go func() {
+		for i := 0; i < count; i++ {
+			out <- rand.Int()
+		}
+		close(out)
+	}()
+
+	return out
+}
+
+func MergeN(inputs... <-chan int) <-chan int {
+	if len(inputs) == 1 {
+		return inputs[0]
+	}
+	m := len(inputs) / 2
+	return Merge(
+		MergeN(inputs[m:]...),
+		MergeN(inputs[:m]...))
 }
