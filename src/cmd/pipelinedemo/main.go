@@ -8,10 +8,10 @@ import (
 )
 
 func main() {
-	const filename = "small.in"
-	const n = 64
-	//const filename = "large.in"
-	//const n = 10000000
+	//const filename = "small.in"
+	//const n = 64
+	const filename = "large.in"
+	const n = 10000000
 
 	// Create file
 	file, err := os.Create(filename)
